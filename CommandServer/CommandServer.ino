@@ -34,6 +34,7 @@ void setup() {
       if(server.arg("cmd") == "write") cmdWrite(msg);
       else if(server.arg("cmd") == "read") cmdRead(msg);
       else if(server.arg("cmd") == "sha") cmdSha(msg);
+      else if(server.arg("cmd") == "tick") cmdTick(msg);
       else msg += "Unknown command!\n";
       
       server.send(200, "text/plain", msg);
@@ -80,9 +81,10 @@ void cmdRead(String & msg) {
 
 void appendHex(String & msg, BYTE hex) {
   int U = hex >> 4, L = hex & 15;
-  msg += (char)((U < 10) ? U+'0' : U+'A');
-  msg += (char)((L < 10) ? L+'0' : L+'A');
+  msg += (char)((U < 10) ? U+'0' : (U-10)+'A');
+  msg += (char)((L < 10) ? L+'0' : (L-10)+'A');
 }
+
 void cmdSha(String & msg) {
   const char * data = server.arg("data").c_str();
   BYTE buf[SHA256_BLOCK_SIZE];
@@ -96,4 +98,16 @@ void cmdSha(String & msg) {
   msg += "SHA256 digest ";
   for(int i=0; i<SHA256_BLOCK_SIZE; i++)
     appendHex(msg, buf[i]);
+}
+
+static inline int32_t asm_ccount(void) {
+    int32_t r;
+
+    asm volatile ("rsr %0, ccount" : "=r"(r));
+    return r;
+}
+
+void cmdTick(String & msg) {
+  msg += "Tick counter is ";
+  msg += asm_ccount();
 }

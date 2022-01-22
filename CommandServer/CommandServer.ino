@@ -4,6 +4,7 @@
 #include <ESP8266WebServer.h>
 
 #include "wifipass.h" // WIFIPASS_AP and WIFIPASS_PASS
+#include "sha256.h"
 
 ESP8266WebServer server(80);
 
@@ -32,6 +33,7 @@ void setup() {
       
       if(server.arg("cmd") == "write") cmdWrite(msg);
       else if(server.arg("cmd") == "read") cmdRead(msg);
+      else if(server.arg("cmd") == "sha") cmdSha(msg);
       else msg += "Unknown command!\n";
       
       server.send(200, "text/plain", msg);
@@ -72,4 +74,26 @@ void cmdRead(String & msg) {
   int len = EEPROM.read(0);
   for(int i=0; i<len && i<127; i++) msg += (char)EEPROM.read(1+i);
   msg += "\n";
+}
+
+#include "sha256.h"
+
+void appendHex(String & msg, BYTE hex) {
+  int U = hex >> 4, L = hex & 15;
+  msg += (char)((U < 10) ? U+'0' : U+'A');
+  msg += (char)((L < 10) ? L+'0' : L+'A');
+}
+void cmdSha(String & msg) {
+  const char * data = server.arg("data").c_str();
+  BYTE buf[SHA256_BLOCK_SIZE];
+  SHA256_CTX ctx;
+  int idx;
+  int pass = 1;
+
+  sha256_init(&ctx);
+  sha256_update(&ctx, (const BYTE *)data, strlen(data));
+  sha256_final(&ctx, buf);
+  msg += "SHA256 digest ";
+  for(int i=0; i<SHA256_BLOCK_SIZE; i++)
+    appendHex(msg, buf[i]);
 }

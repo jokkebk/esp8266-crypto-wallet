@@ -3,46 +3,65 @@
 #include <WiFiClient.h>
 #include <ESP8266WebServer.h>
 
-#include "wifipass.h" // WIFIPASS_AP and WIFIPASS_PASS
+#include "wifipass.h" // WIFIPASS_AP and WIFIPASS_PASS. Comment out to use softAP
 #include "sha256.h"
 
 ESP8266WebServer server(80);
 
+BYTE secret[SHA256_BLOCK_SIZE]; // 32 bytes of secret
+
+#define HEX(n) ((char)((n) < 10 ? (n)+'0' : ((n)-10)+'a'))
+#define UNIB(n) ((n)>>4)
+#define LNIB(n) ((n)&15)
+
+static inline int32_t asm_ccount() {
+    int32_t r;
+    asm volatile ("rsr %0, ccount" : "=r"(r));
+    return r;
+}
+
+void echo(String & msg, const String & str) { // helper
+  Serial.print(str);
+  msg += str;
+}
+
 void setup() {
   pinMode(LED_BUILTIN, OUTPUT);
-  digitalWrite(LED_BUILTIN, 0);
+  digitalWrite(LED_BUILTIN, 1);
   Serial.begin(115200);
 
-  /*
+#ifndef __WIFIPASS_H
   Serial.println(WiFi.softAP("ESPsoftAP_01") ? "SoftAP ready" : "SoftAP failed!");
   Serial.print("Soft-AP IP address = ");
   Serial.println(WiFi.softAPIP());
-  */
+#else
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFIPASS_AP, WIFIPASS_PASS);
   
   while(WiFi.status() != WL_CONNECTED) { delay(500); Serial.println("."); }
   Serial.print("Connected. IP address: ");
   Serial.println(WiFi.localIP());
+#endif
 
   server.on("/", []() {
-    digitalWrite(LED_BUILTIN, 1);
-
+    digitalWrite(LED_BUILTIN, 0);
+    String msg = "";
+    
     if(server.method() == HTTP_POST) {
-      String msg = "Command: " + server.arg("cmd") + "\n";
+      String str = "Command: ";
+      echo(msg, str + server.arg("cmd") + '\n');
       
-      if(server.arg("cmd") == "write") cmdWrite(msg);
+      if(server.arg("cmd") == "generate") cmdGenerate(msg);
+      else if(server.arg("cmd") == "print") cmdPrint(msg);
+      else if(server.arg("cmd") == "write") cmdWrite(msg);
       else if(server.arg("cmd") == "read") cmdRead(msg);
-      else if(server.arg("cmd") == "sha") cmdSha(msg);
-      else if(server.arg("cmd") == "tick") cmdTick(msg);
-      else msg += "Unknown command!\n";
-      
-      server.send(200, "text/plain", msg);
-    } else {
-      server.send(200, "text/plain", "Hello, GETter!\r\n");
+      else if(server.arg("cmd") == "set") cmdSet(msg);
+      else if(server.arg("cmd") == "sign") cmdSign(msg);
+      else echo(msg, "Unknown command!\n");
     }
     
-    digitalWrite(LED_BUILTIN, 0);
+    server.send(200, "text/plain", msg);
+    digitalWrite(LED_BUILTIN, 1);
   });
 
   server.begin();
@@ -54,60 +73,49 @@ void loop() {
 }
 
 void cmdWrite(String & msg) {
-  const String & data = server.arg("data");
-  int len = server.arg("data").length();
-  if(len > 127) len = 127;
-  EEPROM.begin(128);
-  EEPROM.write(0, (char)len);
-  for(int i=0; i<len; i++) EEPROM.write(1+i, (char)data[i]);
-  if(EEPROM.commit()) {
-    msg += "EEPROM saved!";
-    Serial.println("EEPROM successfully committed");
-  } else {
-    msg += "EEPROM failed!";
-    Serial.println("EEPROM commit failed!");
-  }
+  EEPROM.begin(SHA256_BLOCK_SIZE);
+  for(int i=0; i<SHA256_BLOCK_SIZE; i++) EEPROM.write(i, secret[i]);
+  echo(msg, EEPROM.commit() ? "Secret written to EEPROM.\n" : "EEPROM write failed!\n");
 }
 
 void cmdRead(String & msg) {
-  msg += "EEPROM content: ";
-  EEPROM.begin(128);
-  int len = EEPROM.read(0);
-  for(int i=0; i<len && i<127; i++) msg += (char)EEPROM.read(1+i);
-  msg += "\n";
+  EEPROM.begin(SHA256_BLOCK_SIZE);
+  for(int i=0; i<SHA256_BLOCK_SIZE; i++) secret[i] = EEPROM.read(i);
+  echo(msg, "Secret read from EEPROM.\n");
 }
 
-#include "sha256.h"
-
-void appendHex(String & msg, BYTE hex) {
-  int U = hex >> 4, L = hex & 15;
-  msg += (char)((U < 10) ? U+'0' : (U-10)+'A');
-  msg += (char)((L < 10) ? L+'0' : (L-10)+'A');
-}
-
-void cmdSha(String & msg) {
+void cmdGenerate(String & msg) {
+  // Seed elements
   const char * data = server.arg("data").c_str();
-  BYTE buf[SHA256_BLOCK_SIZE];
+  int adc = analogRead(A0);
+  int32_t clk = asm_ccount();
+
   SHA256_CTX ctx;
-  int idx;
-  int pass = 1;
 
   sha256_init(&ctx);
   sha256_update(&ctx, (const BYTE *)data, strlen(data));
-  sha256_final(&ctx, buf);
-  msg += "SHA256 digest ";
-  for(int i=0; i<SHA256_BLOCK_SIZE; i++)
-    appendHex(msg, buf[i]);
+  sha256_update(&ctx, (const BYTE *)&adc, sizeof(adc));
+  sha256_update(&ctx, (const BYTE *)&clk, sizeof(clk));
+  sha256_final(&ctx, secret);
+
+  echo(msg, "New secret generated! Use 'write' to commit to EEPROM.\n");
 }
 
-static inline int32_t asm_ccount(void) {
-    int32_t r;
-
-    asm volatile ("rsr %0, ccount" : "=r"(r));
-    return r;
+void cmdPrint(String & msg) {
+  int sum = 0;
+  for(int i=0; i<SHA256_BLOCK_SIZE; i++) {
+    Serial.print(HEX(UNIB(secret[i])));
+    Serial.print(HEX(LNIB(secret[i])));
+    sum += secret[i];
+  }
+  String str = "Sum of secret ";
+  echo(msg, str + sum + "\n");
 }
 
-void cmdTick(String & msg) {
-  msg += "Tick counter is ";
-  msg += asm_ccount();
+void cmdSet(String & msg) {
+  echo(msg, "Not implemented yet!\n");
+}
+
+void cmdSign(String & msg) {
+  echo(msg, "Not implemented yet!\n");
 }

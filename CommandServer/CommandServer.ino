@@ -11,9 +11,8 @@ ESP8266WebServer server(80);
 
 BYTE secret[SHA256_BLOCK_SIZE]; // 32 bytes of secret
 
-#define HEX(n) ((char)((n) < 10 ? (n)+'0' : ((n)-10)+'a'))
-#define UNIB(n) ((n)>>4)
-#define LNIB(n) ((n)&15)
+#define TOHEX(n) ((char)((n) < 10 ? (n)+'0' : ((n)-10)+'a'))
+#define FROMHEX(n) ((n)- ((n)>96 ? 'a'-10 : ((n)>64 ? 'A'-10 : '0')))
 
 static inline int32_t asm_ccount() {
     int32_t r;
@@ -62,7 +61,8 @@ void setup() {
       else if(server.arg("cmd") == "sign") cmdSign(msg);
       else echo(msg, "Unknown command!\n");
     }
-    
+
+    server.sendHeader("Access-Control-Allow-Origin", "*");
     server.send(200, "text/plain", msg);
     digitalWrite(LED_BUILTIN, 1);
   });
@@ -134,8 +134,8 @@ void cmdGenerate(String & msg) {
 void cmdPrint(String & msg) {
   int sum = 0;
   for(int i=0; i<SHA256_BLOCK_SIZE; i++) {
-    Serial.print(HEX(UNIB(secret[i])));
-    Serial.print(HEX(LNIB(secret[i])));
+    Serial.print(TOHEX(secret[i]>>4));
+    Serial.print(TOHEX(secret[i]&15));
     sum += secret[i];
   }
   String str = "Sum of secret ";
@@ -143,7 +143,13 @@ void cmdPrint(String & msg) {
 }
 
 void cmdSet(String & msg) {
-  echo(msg, "Not implemented yet!\n");
+  const char * data = server.arg("data").c_str();
+  for(int i=0; i<strlen(data) && i<SHA256_BLOCK_SIZE*2; i++) {
+    if(i&1) secret[i>>1] += FROMHEX(data[i]);
+    else secret[i>>1] = FROMHEX(data[i])<<4;
+    Serial.print(data[i]);
+  }
+  echo(msg, "Set secret!\n");
 }
 
 void cmdSign(String & msg) {

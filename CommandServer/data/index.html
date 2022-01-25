@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>ESP8266 Crypto wallet</title>
+    <style type="text/css">
+
+    </style>
+  </head>
+  <body>
+    <h1>ESP8266 Crypto wallet</h1>
+    <h2>Load secret from EEPROM</h2>
+    <p><button id="read">Read</button></p>
+    <h2>Generate new secret</h2>
+    <p><input type="text" id="seed" placeholder="random seed text"> <button id="generate">Generate</button></p>
+    <h2>Set secret</h2>
+    <p>Set secret from hex you stored on paper. <strong>To minimize risk of
+      compromising your secret, you should only do this on a fresh live boot of
+      Linux without connecting to internet first. And even in that case,
+      it is advisable to set, write, and reboot the ESP8266 to have as little
+      time and WPA packets for an adversary to possibly decrypt the
+    payload.</strong></p>
+    <p><input type="text" id="secret" placeholder="secret in hex"> <button id="set">Set</button></p>
+    <h2>Write secret to EEPROM</h2>
+    <p><strong>NOTE: This will IRRECOVERABLY erase any secret already in EEPROM!</strong></p>
+    <p><button id="write">Write</button></p>
+    <h2>Print secret</h2>
+    <p>This will output the secret over serial. A simple sum of bytes is shown here to let you verify a "Load" or "Generate" action worked.</p>
+    <p><button id="print">Print</button></p>
+    <script>
+        function getField(id) { return document.getElementById(id).value; }
+        async function post(body) {
+          return await fetch('http://192.168.86.111/do', {
+                  method: 'POST', mode: 'cors',
+                  headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+                  body
+              })
+        }
+
+        const actions = [
+            ["set", async function() {
+              let resp = post('cmd=set&data='+getField('secret').trim());
+              console.log(resp.data);
+            }],
+          ["print", async function() {
+              let resp = post('cmd=print');
+              alert(resp.text());
+              console.log(resp.text());
+          }]
+        ];
+
+        for([id, f] of actions) document.getElementById(id).onclick = f;
+    </script>
+  </body>
+</html>

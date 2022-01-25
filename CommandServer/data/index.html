@@ -9,7 +9,7 @@
   </head>
   <body>
     <h1>ESP8266 Crypto wallet</h1>
-    <h2>Load secret from EEPROM</h2>
+    <h2>Read secret from EEPROM</h2>
     <p><button id="read">Read</button></p>
     <h2>Generate new secret</h2>
     <p><input type="text" id="seed" placeholder="random seed text"> <button id="generate">Generate</button></p>
@@ -30,23 +30,21 @@
     <script>
         function getField(id) { return document.getElementById(id).value; }
         async function post(body) {
-          return await fetch('http://192.168.86.111/do', {
-                  method: 'POST', mode: 'cors',
-                  headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
-                  body
-              })
+          let resp = await fetch('/do', { method: 'POST', mode: 'cors', body,
+              headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+          });
+          if(resp.ok) {
+            let txt = await resp.text();
+            alert('Success! ' + txt);
+          } else alert('Fetch failed!');
         }
 
         const actions = [
-            ["set", async function() {
-              let resp = post('cmd=set&data='+getField('secret').trim());
-              console.log(resp.data);
-            }],
-          ["print", async function() {
-              let resp = post('cmd=print');
-              alert(resp.text());
-              console.log(resp.text());
-          }]
+            ["set", async function () { post('cmd=set&data=' + getField('secret').trim()); }],
+            ["generate", async function () { post('cmd=generate&data=' + getField('seed')); }],
+            ["print", async function () { post('cmd=print'); }],
+            ["read", async function () { post('cmd=read'); }],
+            ["write", async function () { post('cmd=write'); }],
         ];
 
         for([id, f] of actions) document.getElementById(id).onclick = f;

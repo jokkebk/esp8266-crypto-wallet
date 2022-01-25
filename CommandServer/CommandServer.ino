@@ -20,11 +20,6 @@ static inline int32_t asm_ccount() {
     return r;
 }
 
-void echo(String & msg, const String & str) { // helper
-  Serial.print(str);
-  msg += str;
-}
-
 void setup() {
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, 1);
@@ -45,25 +40,31 @@ void setup() {
 
   Serial.println(SPIFFS.begin() ? "SPIFFS initialized." : "SPIFFS begin failed!");
 
-  server.on("/do", []() {
+  server.on("/do", HTTP_POST, []() { // simple RESTful api with cmd and data payloads
     digitalWrite(LED_BUILTIN, 0);
-    String msg = "";
     
-    if(server.method() == HTTP_POST) {
-      String str = "Command: ";
-      echo(msg, str + server.arg("cmd") + '\n');
-      
-      if(server.arg("cmd") == "generate") cmdGenerate(msg);
-      else if(server.arg("cmd") == "print") cmdPrint(msg);
-      else if(server.arg("cmd") == "write") cmdWrite(msg);
-      else if(server.arg("cmd") == "read") cmdRead(msg);
-      else if(server.arg("cmd") == "set") cmdSet(msg);
-      else if(server.arg("cmd") == "sign") cmdSign(msg);
-      else echo(msg, "Unknown command!\n");
-    }
+    Serial.print("Command: ");
+    Serial.println(server.arg("cmd"));
 
     server.sendHeader("Access-Control-Allow-Origin", "*");
-    server.send(200, "text/plain", msg);
+    
+    if(server.arg("cmd") == "print") {
+      String msg = "";
+      msg += cmdPrint();
+      server.send(200, "text/plain", msg);
+    } else {
+      bool fail = false;
+      if(server.arg("cmd") == "generate") cmdGenerate();
+      else if(server.arg("cmd") == "write") cmdWrite();
+      else if(server.arg("cmd") == "read") cmdRead();
+      else if(server.arg("cmd") == "set") cmdSet();
+      //else if(server.arg("cmd") == "sign") cmdSign(msg);
+      else {
+        server.send(400, "text/plain", "Unknown command!");
+        fail = true;
+      }
+      if(!fail) server.send(204); // No Content
+    }
     digitalWrite(LED_BUILTIN, 1);
   });
 
@@ -102,19 +103,18 @@ bool handleFileRead(String path) {
   return false;
 }
 
-void cmdWrite(String & msg) {
+bool cmdWrite() {
   EEPROM.begin(SHA256_BLOCK_SIZE);
   for(int i=0; i<SHA256_BLOCK_SIZE; i++) EEPROM.write(i, secret[i]);
-  echo(msg, EEPROM.commit() ? "Secret written to EEPROM.\n" : "EEPROM write failed!\n");
+  return EEPROM.commit();
 }
 
-void cmdRead(String & msg) {
+void cmdRead() {
   EEPROM.begin(SHA256_BLOCK_SIZE);
   for(int i=0; i<SHA256_BLOCK_SIZE; i++) secret[i] = EEPROM.read(i);
-  echo(msg, "Secret read from EEPROM.\n");
 }
 
-void cmdGenerate(String & msg) {
+void cmdGenerate() {
   // Seed elements
   const char * data = server.arg("data").c_str();
   int adc = analogRead(A0);
@@ -127,31 +127,25 @@ void cmdGenerate(String & msg) {
   sha256_update(&ctx, (const BYTE *)&adc, sizeof(adc));
   sha256_update(&ctx, (const BYTE *)&clk, sizeof(clk));
   sha256_final(&ctx, secret);
-
-  echo(msg, "New secret generated! Use 'write' to commit to EEPROM.\n");
 }
 
-void cmdPrint(String & msg) {
+int cmdPrint() {
   int sum = 0;
   for(int i=0; i<SHA256_BLOCK_SIZE; i++) {
     Serial.print(TOHEX(secret[i]>>4));
     Serial.print(TOHEX(secret[i]&15));
     sum += secret[i];
   }
-  String str = "Sum of secret ";
-  echo(msg, str + sum + "\n");
+  Serial.println();
+  return sum;
 }
 
-void cmdSet(String & msg) {
+void cmdSet() {
   const char * data = server.arg("data").c_str();
   for(int i=0; i<strlen(data) && i<SHA256_BLOCK_SIZE*2; i++) {
     if(i&1) secret[i>>1] += FROMHEX(data[i]);
     else secret[i>>1] = FROMHEX(data[i])<<4;
     Serial.print(data[i]);
   }
-  echo(msg, "Set secret!\n");
-}
-
-void cmdSign(String & msg) {
-  echo(msg, "Not implemented yet!\n");
+  Serial.println();
 }

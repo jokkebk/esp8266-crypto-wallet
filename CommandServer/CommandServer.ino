@@ -2,6 +2,7 @@
 #include <ESP8266WiFi.h>
 #include <WiFiClient.h>
 #include <ESP8266WebServer.h>
+#include <FS.h>
 
 #include "wifipass.h" // WIFIPASS_AP and WIFIPASS_PASS. Comment out to use softAP
 #include "sha256.h"
@@ -43,7 +44,9 @@ void setup() {
   Serial.println(WiFi.localIP());
 #endif
 
-  server.on("/", []() {
+  Serial.println(SPIFFS.begin() ? "SPIFFS initialized." : "SPIFFS begin failed!");
+
+  server.on("/do", []() {
     digitalWrite(LED_BUILTIN, 0);
     String msg = "";
     
@@ -64,12 +67,39 @@ void setup() {
     digitalWrite(LED_BUILTIN, 1);
   });
 
+  server.onNotFound([]() {
+    if(!handleFileRead(server.uri()))
+      server.send(404, "text/plain", "404: Not Found");
+  });
+  
   server.begin();
   Serial.println("HTTP server started");
 }
 
 void loop() {
   server.handleClient();
+}
+
+String getContentType(String filename) { // convert the file extension to the MIME type
+  if(filename.endsWith(".html")) return "text/html";
+  else if(filename.endsWith(".css")) return "text/css";
+  else if(filename.endsWith(".js")) return "application/javascript";
+  else if(filename.endsWith(".ico")) return "image/x-icon";
+  return "text/plain";
+}
+
+bool handleFileRead(String path) {
+  Serial.println("handleFileRead: " + path);
+  if(path.endsWith("/")) path += "index.html";
+  String contentType = getContentType(path);
+  if (SPIFFS.exists(path)) {
+    File file = SPIFFS.open(path, "r");
+    size_t sent = server.streamFile(file, contentType);
+    file.close();
+    return true;
+  }
+  Serial.println("\tFile Not Found");
+  return false;
 }
 
 void cmdWrite(String & msg) {

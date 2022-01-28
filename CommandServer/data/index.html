@@ -25,7 +25,8 @@
     <p><strong>NOTE: This will IRRECOVERABLY erase any secret already in EEPROM!</strong></p>
     <p><button id="write">Write</button></p>
     <h2>Print secret</h2>
-    <p>This will output the secret over serial. A simple sum of bytes is shown here to let you verify a "Load" or "Generate" action worked.</p>
+    <p>This will output the secret over serial. A simple sum of bytes is shown
+    here to let you verify a "read", "generate" or "set" action worked.</p>
     <p><button id="print">Print</button></p>
     <script>
         function getField(id) { return document.getElementById(id).value; }
@@ -44,7 +45,10 @@
             ["generate", async function () { post('cmd=generate&data=' + getField('seed')); }],
             ["print", async function () { post('cmd=print'); }],
             ["read", async function () { post('cmd=read'); }],
-            ["write", async function () { post('cmd=write'); }],
+            ["write", async function () {
+              if(!confirm('Are you sure? Any previous secret stored will be IRRECOVERABLY LOST')) return;
+              post('cmd=write');
+            }],
         ];
 
         for([id, f] of actions) document.getElementById(id).onclick = f;
